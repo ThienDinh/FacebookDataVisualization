@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>DC template</title>	
+	<!-- Latest compiled and minified CSS -->
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+
+	<link rel="stylesheet" type="text/css" href="http://cdnjs.cloudflare.com/ajax/libs/dc/2.0.0/dc.min.css">
+	    <style>
+      .heat-box {
+        stroke: #E6E6E6;
+        stroke-width: 2px;
+      }
+    </style>
+	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.js"></script>
+	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/crossfilter/1.3.12/crossfilter.min.js"></script>
+	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/dc/2.1.3/dc.min.js"></script>
+
+	<script type="text/javascript">
+		var rows_data_quantitative = [];
+		var rows_data_categorical = [];
+		var rows_data_ordinal = [];
+		var drawing_square = (window.innerHeight - 50)/3;
+		var facebook_data = [];
+		var facebook_cf;
+		var heatmap_dim;
+		var scatter_dim1;
+		var scatter_dim2;
+		var lineChart_dim;
+		var histo_dim;
+		function loadData(){
+			d3.csv('facebook_quantitative_data.csv', (err, fb_quantitative) => {
+				d3.csv('facebook_categorical_data.csv', (err, fb_categorical) => {
+					d3.csv('facebook_ordinal_data.csv', (err, fb_ordinal) => {
+						// Get all keys from Ordinal data.
+						var ordinal_types = Object.keys(fb_ordinal[0]);
+						// For each row.
+						fb_ordinal.forEach((row, i) => {
+
+							facebook_data[i] = { id: i};
+							// For each column.
+							ordinal_types.forEach((key) => {
+								facebook_data[i][String(key)] = Number(row[key])
+							})
+							// rows_data_ordinal.push(row);
+							// Add id and column data.
+						})
+
+						// Get all keys from Categorical data.
+						var categorical_options = Object.keys(fb_categorical[0]);
+						fb_categorical.forEach((row, i) => {
+							// row['id'] = i
+							categorical_options.forEach((key) => {
+								facebook_data[i][String(key)] = String(row[key])
+							})
+							// console.log(row)
+							// rows_data_categorical.push(row);
+						})
+
+						// ^Data has been read in.
+						var attributes_names = Object.keys(fb_quantitative[0]);
+						// ^Names of attributes are collected.
+						fb_quantitative.forEach((row, i) => {
+							// row['id'] = i
+							// rows_data_quantitative.push(row);
+							attributes_names.forEach((key) => {
+								facebook_data[i][String(key)] = Number(row[key])
+							})
+						})
+
+						// Set up crossfilter and dimensions.
+						facebook_cf = crossfilter(facebook_data);
+						handleAxis();
+					})
+				})
+			})
+		}
+	</script>
+	<script type="text/javascript">
+		function print_filter(filter) {
+			var f=eval(filter);
+			if (typeof(f.length) != "undefined") {}else{}
+			if (typeof(f.top) != "undefined") {f=f.top(Infinity);}else{}
+			if (typeof(f.dimension) != "undefined") {f=f.dimension(function(d) { return "";}).top(Infinity);}else{}
+			console.log(filter+"("+f.length+") = "+JSON.stringify(f).replace("[","[\n\t").replace(/}\,/g,"},\n\t").replace("]","\n]"));
+		}
+		function reloadScatterplot(label_x, label_y, brush){
+			var data_x = [];
+			var data_y = [];
+			if (scatter_dim1 !== undefined) scatter_dim1.dispose();
+			scatter_dim1 = facebook_cf.dimension(function(d, i) {
+				data_x[i] = d[label_x];
+				data_y[i] = d[label_y];
+				return [d[label_x], d[label_y]];
+			});
+			var scatter_group = scatter_dim1.group();
+
+			var boundX = d3.extent(data_x);
+			var boundY= d3.extent(data_y);
+
+			var scatter = dc.scatterPlot('#scatterplot');
+			scatter.width((window.innerWidth - 50)/2)
+				.height(drawing_square)
+				.margins({top: 10, right: 20, bottom: 50, left: 50})
+				.dimension(scatter_dim1)
+				.group(scatter_group)
+				.symbolSize(7)
+				.clipPadding(7)
+				.yAxisLabel(label_y)
+				.xAxisLabel(label_x)
+				.title(function(d) {
+					return `${label_x}:${d.key[0]}, ${label_y}:${d.key[1]}`;
+				})
+				.keyAccessor((d) => {return d.key[0]})
+				.valueAccessor((d) => {return d.key[1]})
+				.x(d3.scale.linear().domain([boundX[0], boundX[1] + Math.round(Math.abs(boundX[1] - boundX[0]) / 100 * 2)]))
+				.y(d3.scale.linear().domain([boundY[0], boundY[1] + Math.round(Math.abs(boundY[1] - boundY[0]) / 100 * 2)]))
+			scatter.brushOn(brush).mouseZoomable(!brush);			
+			scatter.xAxis().ticks(10);			
+			scatter.yAxis().ticks(10);
+			scatter.render();
+		}
+
+		function reloadSeriesChart(label_x, label_y,cate){
+			var data_x = [];
+			var data_y = [];
+			if (scatter_dim2 !== undefined) scatter_dim2.dispose();
+			scatter_dim2 = facebook_cf.dimension(function(d, i) {
+				data_x[i] = d[label_x];
+				data_y[i] = d[label_y];
+				return [d[label_x], d[label_y], d[cate]];
+			});
+			var scatter_group = scatter_dim2.group();
+
+			var boundX = d3.extent(data_x);
+			var boundY= d3.extent(data_y);
+
+			var seriesChart = dc.seriesChart('#series-chart');
+			var symbolScale = d3.scale.ordinal().range(d3.svg.symbolTypes);
+			var symbolAccessor = function(d) {
+				return symbolScale(d.key[2]);
+			}
+			var scatter = function(c) {
+				return dc.scatterPlot(c)
+					.symbol(symbolAccessor)
+					.symbolSize(4)
+					.clipPadding(4)
+					.highlightedSize(10)
+			}
+			seriesChart.width((window.innerWidth - 50)/2)
+				.height(drawing_square)
+				.chart(scatter)
+				.margins({top: 10, right: 20, bottom: 50, left: 50})
+				.dimension(scatter_dim2)
+				.group(scatter_group)
+				.yAxisLabel(label_y)
+				.xAxisLabel(label_x)
+				.elasticX(true)
+				.title(function(d) {
+					return `${label_x}:${d.key[0]}, ${label_y}:${d.key[1]}, ${d.key[2]}`;
+				})
+				.mouseZoomable(false)
+				.brushOn(false)
+				.keyAccessor((d) => {return d.key[0]})
+				.valueAccessor((d) => {return d.key[1]})
+    				.seriesAccessor(function(d) {return d.key[2];})
+				.x(d3.scale.linear().domain([boundX[0], boundX[1] + Math.round(Math.abs(boundX[1] - boundX[0]) / 100 * 2)]))
+				.y(d3.scale.linear().domain([boundY[0], boundY[1] + Math.round(Math.abs(boundY[1] - boundY[0]) / 100 * 2)]))
+				.legend(dc.legend().x(drawing_square * 2).y(drawing_square / 3).itemHeight(13).gap(5).legendWidth(70).itemWidth(70));
+			seriesChart.render();
+		}
+
+		function reloadHistogram(label){
+			var histogram = dc.barChart("#histogram");
+			if (histo_dim !== undefined) histo_dim.dispose();
+			var data = [];
+			for (var i = 0; i < facebook_data.length; i++) {
+				data[i] = facebook_data[i][label];
+			}
+			var number_of_bins = 10;
+			var bound = d3.extent(data);
+			var unit = Math.ceil(bound[1] / number_of_bins);
+			var top = unit * number_of_bins;
+
+			histo_dim = facebook_cf.dimension(function (d) {
+				var v = Math.floor(d[label] / unit);
+				return v;
+			});
+
+			var histo_group = histo_dim.group().reduceCount();
+
+			histogram.width((window.innerWidth - 50)/3)
+				.height(drawing_square)
+			    .dimension(histo_dim)
+			    .group(histo_group)			    
+			    .x(d3.scale.linear().domain([0, number_of_bins]))
+			    .xUnits(dc.units.integers)
+			    .margins({top: 10, right: 20, bottom: 50, left: 50})
+			    .yAxisLabel('Frequency')
+			    .xAxisLabel(label);
+			histogram.xAxis().tickFormat(function(d) {
+				return Math.floor(d * unit);
+			})
+			histogram.xAxis().ticks(number_of_bins);
+
+			histogram.render();
+		}
+
+		function reloadLineChart(label_x, type){
+			var lineChart = dc.compositeChart('#line-chart');
+			if (lineChart_dim !== undefined) lineChart_dim.dispose();
+			lineChart_dim = facebook_cf.dimension(function(d) {
+				// With post month, it prints 1->12.
+				return Number(d[type]);
+			});
+			var lineChart_group = lineChart_dim.group().reduce(
+				function(initial, datapoint) {
+					var sum = initial.sum + datapoint[label_x];
+					var count = initial.count + 1;
+					var avg;
+					if (count == 0) {
+						avg = 0;
+					} else {
+						avg = sum / count;
+					}
+					return {
+						sum: sum,
+						count: count,
+						avg: avg
+					}
+				},
+				function(initial, datapoint) {
+					var sum = initial.sum - datapoint[label_x];
+					var count = initial.count - 1;
+					var avg;
+					if (count == 0) {
+						avg = 0;
+					} else {
+						avg = sum / count;
+					}
+					return {
+						sum: sum,
+						count: count,
+						avg: avg
+					}
+					return {
+						sum: sum,
+						count: count,
+						avg: avg
+					}
+				},
+				function() {
+					return {
+						sum: 0,
+						count: 0,
+						avg: 0
+					}
+				});
+			var check = lineChart_dim.group();
+			lineChart.width((window.innerWidth - 50)/3)
+				.height(drawing_square)
+				.margins({top: 10, right: 40, bottom: 60, left: 60})
+				.x(d3.scale.ordinal())
+				.xUnits(dc.units.ordinal)
+				.dimension(lineChart_dim)
+				.group(lineChart_group)
+				.alignYAxes(true)
+				.elasticX(true)
+				.elasticY(true)
+				.xAxisLabel(type)
+				.brushOn(false)
+				.title(function(d) {
+					return `${type}:${d.key} ->Sum:${d.value.sum}, Average:${d.value.avg}`;
+				})
+				.legend(dc.legend().x(drawing_square/3).y(drawing_square/2).itemHeight(13).gap(5))
+				.compose([
+					dc.lineChart(lineChart)
+						.dimension(lineChart_dim)
+						.group(lineChart_group, 'Sum of ' + label_x)
+						.x(d3.scale.ordinal())
+						.elasticX(true)
+						.elasticY(true)
+						.valueAccessor(function(p) {
+							return p.value.sum;
+						})
+						.colors('red')
+						.brushOn(false)
+						.dashStyle([2,2]),
+					dc.lineChart(lineChart)
+						.dimension(lineChart_dim)
+						.group(lineChart_group, 'Average of ' + label_x)
+						.x(d3.scale.ordinal())
+						.elasticX(true)
+                                        			.elasticY(true)
+                                        			.useRightYAxis(true)
+                                        			.yAxisPadding(50)
+						.valueAccessor(function(p) {
+							return p.value.avg;
+						})
+						.colors('blue')
+						.dashStyle([5,5])
+				]);
+			lineChart.render();
+		}
+
+		function reloadHeatmap(label_x, label_y, label_z){
+			var heatmap = dc.heatMap('#heatmap');
+			if (heatmap_dim !== undefined) heatmap_dim.dispose();
+			heatmap_dim = facebook_cf.dimension(function(d) {
+				return [Number(d[label_x]), Number(d[label_y])];
+			});
+			var heatmap_group = heatmap_dim.group(function(d) {
+				return d;
+			}).reduceSum(function(d) {
+				return facebook_data[d.id][label_z];
+			})
+
+			heatmap.width((window.innerWidth - 50)/3)
+				.height(drawing_square)
+				.dimension(heatmap_dim)
+				.group(heatmap_group)
+				.keyAccessor((d) => {return d.key[0]})
+				.valueAccessor((d) => {return d.key[1]})
+				.colorAccessor((d) => {return d.value})
+				.title(function(d) {
+					return `${label_x}:${d.key[0]}, ${label_y}:${d.key[1]}, ${label_z}:${d.value}`;
+				})
+				.colors(['#fcbba1','#fc9272','#fb6a4a','#ef3b2c','#cb181d','#a50f15','#67000d'])
+				.calculateColorDomain();
+			heatmap.render();
+		}
+
+		function handleAxis(){
+			var option_x = document.getElementById('option-scatterplot-x');
+			var label_x = option_x[option_x.selectedIndex].text;
+			var option_y = document.getElementById('option-scatterplot-y');
+			var label_y = option_y[option_y.selectedIndex].text;
+			var cate_x = document.getElementById('option-heatmap-x');
+			var label_cate_x = cate_x[cate_x.selectedIndex].text;
+
+			var cate = document.getElementById('categorical-x');
+			var label_cate = cate[cate.selectedIndex].text;
+
+			var brush = document.getElementById('enable-brush').checked;
+
+			reloadScatterplot(label_x, label_y, brush);
+			reloadSeriesChart(label_x, label_y, label_cate);
+			reloadHistogram(label_x);
+			reloadLineChart(label_x, label_cate_x);
+			handleHeatmapChange();
+		}
+
+		function handleHeatmapChange(){
+			var option_x = document.getElementById('option-heatmap-x');
+			var label_x = option_x[option_x.selectedIndex].text;
+			var option_y = document.getElementById('option-heatmap-y');
+			var label_y = option_y[option_y.selectedIndex].text;
+
+			var option_z = document.getElementById('option-scatterplot-x');
+			var label_z = option_z[option_z.selectedIndex].text;
+			reloadHeatmap(label_x, label_y, label_z);
+			reloadLineChart(label_z, label_x);
+		}
+		function handleChangeCategorical(){
+			
+			var option_x = document.getElementById('option-scatterplot-x');
+			var label_x = option_x[option_x.selectedIndex].text;
+			var option_y = document.getElementById('option-scatterplot-y');
+			var label_y = option_y[option_y.selectedIndex].text;
+			var cate = document.getElementById('categorical-x');
+			var label_cate = cate[cate.selectedIndex].text;
+			reloadSeriesChart(label_x, label_y, label_cate);
+		}
+		function handleEnableBrush(){
+			var option_x = document.getElementById('option-scatterplot-x');
+			var label_x = option_x[option_x.selectedIndex].text;
+			var option_y = document.getElementById('option-scatterplot-y');
+			var brush = document.getElementById('enable-brush').checked;
+			var label_y = option_y[option_y.selectedIndex].text;
+			reloadScatterplot(label_x, label_y, brush);
+		}
+	</script>
+</head>
+<body onload="loadData()">
+	<h2>Facebook Data Visualization by Thien Dinh</h2>
+	<p>
+	Y-Axis of Scatterplot 1
+	<select id='option-scatterplot-y' onchange='handleAxis()'>
+		<option>page total likes</option>
+		<option>lifetime post total reach</option>
+		<option>lifetime post total impressions</option>
+		<option>lifetime engaged users</option>
+		<option>lifetime post consumers</option>
+		<option>lifetime post consumptions</option>
+		<option>lifetime post impressions by people who have liked your page</option>
+		<option>lifetime post reach by people who like your page</option>
+		<option>lifetime people who have liked your page and engaged with your post</option>
+		<option>comment</option><option>like</option>
+		<option>share</option>
+		<option>total interactions</option>
+	</select>
+	<br>
+	X-axis of Scatterplot 1 / X-axis of Scatterplot 2 / Heat color of Heatmap / X-axis of Histogram / Y-axis of Line Chart
+	<select id='option-scatterplot-x' onchange='handleAxis()'>
+		<option>page total likes</option>
+		<option>lifetime post total reach</option>
+		<option>lifetime post total impressions</option>
+		<option>lifetime engaged users</option>
+		<option>lifetime post consumers</option>
+		<option>lifetime post consumptions</option>
+		<option>lifetime post impressions by people who have liked your page</option>
+		<option>lifetime post reach by people who like your page</option>
+		<option>lifetime people who have liked your page and engaged with your post</option>
+		<option>comment</option><option>like</option>
+		<option>share</option>
+		<option>total interactions</option>
+	</select>
+	</p>
+	<p>
+	Y-Axis of Heatmap
+	<select id='option-heatmap-y' onchange='handleHeatmapChange()'>
+		<option>post month</option>
+		<option>post weekday</option>
+		<option>post hour</option>
+	</select>
+	X-Axis of Heatmap/ X-axis of Line chart
+	<select id='option-heatmap-x' onchange='handleHeatmapChange()'>
+		<option>post month</option>
+		<option>post weekday</option>
+		<option>post hour</option>
+	</select>
+	</p>
+	<p>
+	Categorical Selection of Scatterplot 2
+	<select id='categorical-x' onchange='handleChangeCategorical()'>
+		<option>type</option>
+		<option>category</option>
+		<option>paid</option>
+	</select>
+	</p>
+	<p>
+	Enable brush-on for Scatterplot 1<input type='checkbox' id='enable-brush' onchange='handleEnableBrush()' />
+	</p>
+		<div id='menu'></div>
+		<h4> <b>[Scatterplot1 & Scatterplot2]</b></h4>
+		<div id='scatterplot'></div>
+		<div id='series-chart'></div>		
+		<h4> <b>[Histogram & Heatmap & Line chart]</b></h4>
+		<div id='histogram'></div>
+		<div id='heatmap'></div>
+		<div id='line-chart'></div>
+</body>
+</html>

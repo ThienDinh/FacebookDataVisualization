@@ -1,0 +1,14 @@
+{
+  "name": "facebook_visualization",
+  "version": "1.0.0",
+  "description": "Visualization for Facebook Data",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Thien Dinh",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.15.3"
+  }
+}
